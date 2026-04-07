@@ -1,4 +1,8 @@
-"""Configuration management for OMAD CLI tool using Pydantic models."""
+"""Path configuration for OMAD.
+
+Parameter defaults (theta_g, seeds, ratios, etc.) live in config.yaml
+and are passed through the CLI. This module only defines path conventions.
+"""
 
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -40,40 +44,10 @@ class PathConfig(BaseModel):
         return self.route_sliced_dir(T) / "injected"
 
 
-class LLMConfig(BaseModel):
-    """LLM configuration."""
-
-    model_id: str = "Qwen/Qwen3-8B"
-    cache_dir: Path | None = None  # Will use HuggingFace default
-    max_new_tokens: int = 256
-    max_retries: int = -1
-
-
-class InjectionConfig(BaseModel):
-    """Anomaly injection configuration."""
-
-    theta_g: float = 3.0  # A1 SED multiplier
-    theta_v: float = 2.0  # A2 speed/heading multiplier
-    default_seed: int = 0
-
-
-class DatasetConfig(BaseModel):
-    """Dataset preparation configuration."""
-
-    train_ratio: float = 0.7
-    valid_ratio: float = 0.15
-    test_ratio: float = 0.15
-    default_seeds: list[int] = [2, 12, 22, 32, 42]
-    default_ratios: list[int] = [10, 5, 3, 1]
-
-
 class OmadConfig(BaseModel):
-    """Master configuration for OMAD."""
+    """Master configuration for OMAD (paths only)."""
 
     paths: PathConfig = Field(default_factory=PathConfig)
-    llm: LLMConfig = Field(default_factory=LLMConfig)
-    injection: InjectionConfig = Field(default_factory=InjectionConfig)
-    dataset: DatasetConfig = Field(default_factory=DatasetConfig)
 
 
 # Global config instance
