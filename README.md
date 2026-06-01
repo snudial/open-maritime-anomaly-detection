@@ -1,6 +1,4 @@
-# OMAD - Ocean Maritime Anomaly Detection
-
-Redefining Maritime Anomaly Detection via Equation-Grounded Synthetic Anomalies
+# Redefining Maritime Anomaly Detection via Equation-Grounded Synthetic Anomalies
 
 ![Overall Framework](overall_framework.png)
 
