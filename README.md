@@ -1,6 +1,6 @@
 # OMAD - Ocean Maritime Anomaly Detection
 
-Maritime anomaly detection pipeline using LLM-based scoring and synthetic anomaly injection.
+Redefining Maritime Anomaly Detection via Equation-Grounded Synthetic Anomalies
 
 ![Overall Framework](overall_framework.png)
 
