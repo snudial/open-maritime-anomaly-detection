@@ -7,7 +7,7 @@
 - **Preprocess**: Route slicing, stratification, and prompt generation
 - **Score**: LLM-based anomaly plausibility scoring (Qwen/Qwen3-8B)
 - **Inject**: Synthetic anomaly injection (A1: Unexpected AIS Activity, A2: Route Deviation, A3: Close Approach)
-- **Prepare Dataset**: .zpz dataset generation for model training
+- **Prepare Dataset**: .npz dataset generation for model training
 - **Pipeline**: End-to-end execution with customizable parameters
 
 ## Installation
@@ -21,7 +21,7 @@
 
 ```bash
 # Clone repository
-git clone https://github.com/oy6uns/open-maritime-anomaly-detection.git
+git clone https://github.com/snudial/open-maritime-anomaly-detection.git
 cd open-maritime-anomaly-detection
 
 # Create virtual environment (recommended)
