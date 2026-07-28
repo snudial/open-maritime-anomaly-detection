@@ -13,7 +13,8 @@ app = typer.Typer(
 # Score defaults. Kept as module constants because the config merge below detects
 # "user did not pass this flag" by comparing against the default.
 SCORE_DEFAULT_MAX_NEW_TOKENS = 1024
-SCORE_DEFAULT_MAX_RETRIES = 6
+SCORE_DEFAULT_MAX_RETRIES = -1
+SCORE_DEFAULT_COERCE_AFTER = 20
 
 
 def _load_config(config_path: str | None) -> dict:
@@ -116,6 +117,7 @@ def score_command(
     anomaly_type: Annotated[str | None, typer.Option(help="Force anomaly type (A1/A2)")] = None,
     max_new_tokens: Annotated[int, typer.Option(help="Max LLM tokens")] = SCORE_DEFAULT_MAX_NEW_TOKENS,
     max_retries: Annotated[int, typer.Option(help="Validation retries (-1=unlimited)")] = SCORE_DEFAULT_MAX_RETRIES,
+    coerce_after: Annotated[int, typer.Option(help="Repair off-by-N scores length after N attempts (0=never)")] = SCORE_DEFAULT_COERCE_AFTER,
     output_dir: Annotated[str | None, typer.Option(help="JSON output directory")] = None,
     log_dir: Annotated[str | None, typer.Option(help="Log directory")] = None,
     interactive: Annotated[bool, typer.Option("--interactive", "-i", help="Interactive prompt mode")] = False,
@@ -146,6 +148,8 @@ def score_command(
             max_new_tokens = score_cfg['max_new_tokens']
         if max_retries == SCORE_DEFAULT_MAX_RETRIES and 'max_retries' in score_cfg:
             max_retries = score_cfg['max_retries']
+        if coerce_after == SCORE_DEFAULT_COERCE_AFTER and 'coerce_after' in score_cfg:
+            coerce_after = score_cfg['coerce_after']
         if output_dir is None and 'output_dir' in score_cfg:
             output_dir = score_cfg['output_dir']
         if log_dir is None and 'log_dir' in score_cfg:
@@ -163,6 +167,7 @@ def score_command(
             anomaly_type=anomaly_type,
             max_new_tokens=max_new_tokens,
             max_retries=max_retries,
+            coerce_after=coerce_after,
             output_dir=output_dir,
             log_dir=log_dir,
             interactive=interactive,

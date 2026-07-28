@@ -247,6 +247,7 @@ def generate_json_validated(
     expected_T: Optional[int],
     max_new_tokens: int,
     max_retries: int,
+    coerce_after: int = 20,
     log_fn=None,
 ) -> Tuple[str, Optional[Dict[str, Any]], str, int]:
     from omad.score.prompts import build_system_prompt
@@ -287,6 +288,21 @@ def generate_json_validated(
             last_reason = parse_reason
             last_payload = None
 
+        # A model that keeps miscounting will not fix itself no matter how many
+        # times it is asked, so unlimited retries would never terminate. Repair
+        # a small off-by-N length in code instead; everything else keeps retrying.
+        if coerce_after > 0 and attempt >= coerce_after:
+            rescued = _try_coerce(
+                last_payload,
+                anomaly_type=anomaly_type,
+                expected_T=expected_T,
+                attempt=attempt,
+                reason=last_reason,
+                log_fn=log_fn,
+            )
+            if rescued is not None:
+                return rescued[0], rescued[1], "coerced", attempt
+
         # max_retries < 0 means unlimited retries
         if max_retries >= 0 and attempt > max_retries:
             break
@@ -309,22 +325,44 @@ def generate_json_validated(
         if log_fn is not None:
             log_fn(f"[VALIDATION FAILED] attempt={attempt} reason={last_reason} -> retry")
 
-    # Retries exhausted: salvage a small off-by-N scores length in code rather than
-    # discarding an otherwise usable payload.
-    coerced = coerce_scores_length(last_payload, expected_T)
-    if coerced is not None:
-        ok, coerce_reason = validate_score_payload(
-            coerced,
-            expected_anomaly_type=anomaly_type,
-            expected_T=expected_T,
-        )
-        if ok:
-            coerced_answer = json.dumps(coerced, ensure_ascii=False)
-            if log_fn is not None:
-                log_fn(
-                    f"[COERCED] attempt={attempt} original_reason={last_reason} "
-                    f"-> scores length fixed to {len(coerced['scores'])}"
-                )
-            return coerced_answer, coerced, "coerced", attempt
+    # Only reachable when a finite max_retries was requested explicitly.
+    rescued = _try_coerce(
+        last_payload,
+        anomaly_type=anomaly_type,
+        expected_T=expected_T,
+        attempt=attempt,
+        reason=last_reason,
+        log_fn=log_fn,
+    )
+    if rescued is not None:
+        return rescued[0], rescued[1], "coerced", attempt
 
     return last_answer, None, last_reason or "unknown error", attempt
+
+
+def _try_coerce(
+    payload: Optional[Dict[str, Any]],
+    *,
+    anomaly_type: str,
+    expected_T: Optional[int],
+    attempt: int,
+    reason: str,
+    log_fn=None,
+) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """Repair an off-by-N scores length, but only if the result then validates."""
+    coerced = coerce_scores_length(payload, expected_T)
+    if coerced is None:
+        return None
+    ok, _ = validate_score_payload(
+        coerced,
+        expected_anomaly_type=anomaly_type,
+        expected_T=expected_T,
+    )
+    if not ok:
+        return None
+    if log_fn is not None:
+        log_fn(
+            f"[COERCED] attempt={attempt} original_reason={reason} "
+            f"-> scores length fixed to {len(coerced['scores'])}"
+        )
+    return json.dumps(coerced, ensure_ascii=False), coerced

@@ -15,7 +15,8 @@ preprocess:
 # ── Score ───────────────────────────────────────────────
 score:
   max_new_tokens: 1024        # Must fit T scores in one JSON (T=72 needs ~400+)
-  max_retries: 6              # -1 = unlimited (a stuck query can stall the batch)
+  max_retries: -1             # -1 = retry until valid; every query must get a score
+  coerce_after: 20            # Fix an off-by-N scores length in code after N attempts (0=never)
 
 # ── Inject ──────────────────────────────────────────────
 inject:

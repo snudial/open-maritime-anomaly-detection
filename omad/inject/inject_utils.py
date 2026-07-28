@@ -402,6 +402,7 @@ def load_plans(injected_dir: str) -> Dict[Tuple[str, str], InjectionPlan]:
         os.path.join(injected_dir, "qwen_output_route_*_A2_*.json"),
     ]
 
+    rejected = 0
     for pattern in patterns:
         for filepath in glob.glob(pattern):
             try:
@@ -420,6 +421,22 @@ def load_plans(injected_dir: str) -> Dict[Tuple[str, str], InjectionPlan]:
                 route_id = m.group(1)
                 anomaly_type = data.get('anomaly_type', m.group(2))
 
+                # Reject unusable score vectors rather than injecting garbage.
+                # top_k_indices() on a constant vector returns an arbitrary
+                # (last-K) slice, which would look like a successful injection.
+                scores = data['scores']
+                bad = None
+                if not isinstance(scores, list) or not scores:
+                    bad = "scores missing or empty"
+                elif isinstance(data.get('T'), int) and len(scores) != data['T']:
+                    bad = f"scores length {len(scores)} != T {data['T']}"
+                elif max(scores) - min(scores) < 1e-9:
+                    bad = "scores are degenerate (all values equal)"
+                if bad is not None:
+                    print(f"Warning: skipping {basename}: {bad}")
+                    rejected += 1
+                    continue
+
                 plan = InjectionPlan(
                     route_id=route_id,
                     anomaly_type=anomaly_type,
@@ -430,6 +447,9 @@ def load_plans(injected_dir: str) -> Dict[Tuple[str, str], InjectionPlan]:
                 plans[(route_id, anomaly_type)] = plan
             except Exception as e:
                 print(f"Warning: Failed to load {filepath}: {e}")
+
+    if rejected:
+        print(f"Warning: {rejected} plan(s) rejected as unusable; re-run `omad score` to regenerate them.")
 
     return plans
 

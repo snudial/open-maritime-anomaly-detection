@@ -15,7 +15,12 @@ MODEL_ID = "Qwen/Qwen3-8B"
 DEFAULT_OUT_DIR = str(Path(__file__).resolve().parent / "outputs")
 DEFAULT_LOG_DIR = str(Path(__file__).resolve().parent / "logs")
 DEFAULT_MAX_NEW_TOKENS = 1024
-DEFAULT_MAX_RETRIES = 6
+# -1 = retry until the model produces a valid payload. Every query must end up
+# with a score, so the batch never gives up on one.
+DEFAULT_MAX_RETRIES = -1
+# Escape hatch for the one failure mode retrying cannot fix: a model that keeps
+# emitting T+/-N scores. After this many attempts the length is repaired in code.
+DEFAULT_COERCE_AFTER = 20
 
 # Lazy model loading - only load when actually needed
 _tokenizer = None
@@ -92,6 +97,7 @@ def _batch_from_root(
     max_retries: int,
     log_fh,
     resume: bool = True,
+    coerce_after: int = DEFAULT_COERCE_AFTER,
 ) -> int:
     tokenizer, model = _get_model()
     root = Path(batch_root)
@@ -146,6 +152,7 @@ def _batch_from_root(
             expected_T=expected_T,
             max_new_tokens=max_new_tokens,
             max_retries=max_retries,
+            coerce_after=coerce_after,
             log_fn=lambda s: log(s, log_fh=log_fh),
         )
         dt_s = time.perf_counter() - t0
@@ -161,7 +168,11 @@ def _batch_from_root(
 
 
 def _report_batch_result(*, out_dir: str, resumed_cnt: int, failed: list, log_fh) -> None:
-    """Log a batch summary and persist the list of queries that never validated."""
+    """Log a batch summary.
+
+    With the default max_retries=-1 nothing can land in `failed`; the list only
+    fills if a finite --max-retries was requested explicitly.
+    """
     if resumed_cnt:
         log(f"[BATCH] resumed (skipped already-valid): {resumed_cnt}", log_fh=log_fh)
     if failed:
@@ -180,6 +191,7 @@ def _batch_from_dir(
     max_retries: int,
     log_fh,
     resume: bool = True,
+    coerce_after: int = DEFAULT_COERCE_AFTER,
 ) -> int:
     tokenizer, model = _get_model()
     files = iter_query_files(batch_dir)
@@ -233,6 +245,7 @@ def _batch_from_dir(
             expected_T=expected_T,
             max_new_tokens=max_new_tokens,
             max_retries=max_retries,
+            coerce_after=coerce_after,
             log_fn=lambda s: log(s, log_fh=log_fh),
         )
         dt_s = time.perf_counter() - t0
@@ -322,6 +335,9 @@ def main() -> int:
         int(max_retries_s) if (max_retries_s and max_retries_s.lstrip('-').isdigit()) else DEFAULT_MAX_RETRIES
     )
 
+    coerce_after_s = get_arg_value("--coerce-after", None)
+    coerce_after = int(coerce_after_s) if (coerce_after_s and coerce_after_s.isdigit()) else DEFAULT_COERCE_AFTER
+
     resume = "--no-resume" not in sys.argv
 
     cli_anomaly_type = _parse_anomaly_type_flag(get_arg_value("--anomaly-type", None))
@@ -347,6 +363,7 @@ def main() -> int:
                 max_retries=max_retries,
                 log_fh=log_fh,
                 resume=resume,
+                coerce_after=coerce_after,
             )
 
         if batch_dir is not None:
@@ -358,6 +375,7 @@ def main() -> int:
                 max_retries=max_retries,
                 log_fh=log_fh,
                 resume=resume,
+                coerce_after=coerce_after,
             )
 
     if "--once" in sys.argv:

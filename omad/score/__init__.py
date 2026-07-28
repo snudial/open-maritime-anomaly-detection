@@ -7,7 +7,8 @@ def run_score(
     batch_dir: str | None = None,
     anomaly_type: str | None = None,
     max_new_tokens: int = 1024,
-    max_retries: int = 6,
+    max_retries: int = -1,
+    coerce_after: int = 20,
     output_dir: str | None = None,
     log_dir: str | None = None,
     interactive: bool = False,
@@ -25,6 +26,7 @@ def run_score(
         anomaly_type: Force anomaly type (A1/A2)
         max_new_tokens: Max LLM tokens
         max_retries: Validation retries (-1=unlimited)
+        coerce_after: Repair an off-by-N scores length after this many attempts
         output_dir: JSON output directory
         log_dir: Log directory
         interactive: Interactive prompt mode
@@ -57,6 +59,7 @@ def run_score(
         "Anomaly Type": anomaly_type or "Auto-detect",
         "Max Tokens": max_new_tokens,
         "Max Retries": max_retries if max_retries >= 0 else "Unlimited",
+        "Coerce After": coerce_after if coerce_after > 0 else "Disabled",
         "Resume": resume,
         "Output Dir": output_dir,
         "Log Dir": log_dir,
@@ -93,6 +96,7 @@ def run_score(
                     out_dir=output_dir,
                     max_new_tokens=max_new_tokens,
                     max_retries=max_retries,
+                    coerce_after=coerce_after,
                     log_fh=log_fh,
                     resume=resume,
                 )
@@ -109,6 +113,7 @@ def run_score(
                     default_anomaly_type=anomaly_type,
                     max_new_tokens=max_new_tokens,
                     max_retries=max_retries,
+                    coerce_after=coerce_after,
                     log_fh=log_fh,
                     resume=resume,
                 )
