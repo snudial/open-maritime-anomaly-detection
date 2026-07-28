@@ -1,6 +1,14 @@
 # Redefining Maritime Anomaly Detection via Equation-Grounded Synthetic Anomalies
 
+[![Paper on arXiv](https://img.shields.io/badge/Paper-arXiv-red?logo=arxiv&logoColor=red)](https://arxiv.org/abs/2606.29721)
+[![alphaXiv](https://img.shields.io/badge/alphaXiv-2606.29721-purple?logo=arxiv&logoColor=white)](https://www.alphaxiv.org/abs/2606.29721)
+[![Project Page](https://img.shields.io/badge/Project-Page-green?logo=githubpages&logoColor=white)](https://jaeeunseo.github.io/KDD26-AD/)
+
 ![Overall Framework](overall_framework.png)
+
+## News
+
+- **2026-05-10**: Our paper has been accepted to **KDD 2026 AI4Sciences Track** as an **Oral** presentation. 🎉
 
 ## Features
 
@@ -137,19 +145,18 @@ open-maritime-anomaly-detection/
         ├── logging.py
         └── validation.py
 ```
-<!--
 ## Citation
 
-If you use this code in your research, please cite:
+If you find this project useful, welcome to cite us.
 
 ```bibtex
-@software{omad2024,
-  title={OMAD: Ocean Maritime Anomaly Detection},
-  author={},
-  year={2024}
+@article{hwang2026redefining,
+  title={Redefining Maritime Anomaly Detection via Equation-Grounded Synthetic Anomalies},
+  author={Hwang, Youngseok and Bae, Sungho and Lee, Dohun and Seo, Jaeeun and Kim, Jeehong and Lee, Wonhee and Park, Hyunwoo},
+  journal={arXiv preprint arXiv:2606.29721},
+  year={2026}
 }
 ```
--->
 
 ## Contact
 
