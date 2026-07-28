@@ -1,6 +1,6 @@
 <div align="center">
 
-# Redefining Maritime Anomaly Detection via Equation-Grounded Synthetic Anomalies
+# ⛴️ Redefining Maritime Anomaly Detection <br> via Equation-Grounded Synthetic Anomalies
 
 [![Paper on arXiv](https://img.shields.io/badge/Paper-arXiv-red?logo=arxiv&logoColor=red)](https://arxiv.org/abs/2606.29721)
 [![alphaXiv](https://img.shields.io/badge/alphaXiv-2606.29721-purple?logo=arxiv&logoColor=white)](https://www.alphaxiv.org/abs/2606.29721)
