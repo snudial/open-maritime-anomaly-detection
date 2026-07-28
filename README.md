@@ -1,16 +1,23 @@
+<div align="center">
+
 # Redefining Maritime Anomaly Detection via Equation-Grounded Synthetic Anomalies
 
 [![Paper on arXiv](https://img.shields.io/badge/Paper-arXiv-red?logo=arxiv&logoColor=red)](https://arxiv.org/abs/2606.29721)
 [![alphaXiv](https://img.shields.io/badge/alphaXiv-2606.29721-purple?logo=arxiv&logoColor=white)](https://www.alphaxiv.org/abs/2606.29721)
 [![Project Page](https://img.shields.io/badge/Project-Page-green?logo=githubpages&logoColor=white)](https://jaeeunseo.github.io/KDD26-AD/)
 
-![Overall Framework](overall_framework.png)
+</div>
+
 
 ## News
 
 - **2026-05-10**: Our paper has been accepted to **KDD 2026 AI4Sciences Track** as an **Oral** presentation. 🎉
 
+
+
 ## Features
+
+![Overall Framework](overall_framework.png)
 
 - **Preprocess**: Route slicing, stratification, and prompt generation
 - **Score**: LLM-based anomaly plausibility scoring (Qwen/Qwen3-8B)
@@ -145,7 +152,7 @@ open-maritime-anomaly-detection/
         ├── logging.py
         └── validation.py
 ```
-## Citation
+## 📖 Citation
 
 If you find this project useful, welcome to cite us.
 
