@@ -12,6 +12,11 @@ preprocess:
   min_track_len: 36           # Minimum track length (in points) for use
   ratios: [10, 5, 3, 1]       # ratios for determining Injection and Stratification (e.g., 10%, 5%, 3%, 1%)
 
+# ── Score ───────────────────────────────────────────────
+score:
+  max_new_tokens: 1024        # Must fit T scores in one JSON (T=72 needs ~400+)
+  max_retries: 6              # -1 = unlimited (a stuck query can stall the batch)
+
 # ── Inject ──────────────────────────────────────────────
 inject:
   theta_g: 3.0                # A1 multiplier (position displacement)

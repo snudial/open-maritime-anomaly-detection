@@ -10,6 +10,11 @@ app = typer.Typer(
     add_completion=False,
 )
 
+# Score defaults. Kept as module constants because the config merge below detects
+# "user did not pass this flag" by comparing against the default.
+SCORE_DEFAULT_MAX_NEW_TOKENS = 1024
+SCORE_DEFAULT_MAX_RETRIES = 6
+
 
 def _load_config(config_path: str | None) -> dict:
     """Load config from file, auto-detecting if not specified."""
@@ -109,12 +114,13 @@ def score_command(
     batch_root: Annotated[str | None, typer.Option(help="Batch root with user_query/ subdirs")] = None,
     batch_dir: Annotated[str | None, typer.Option(help="Flat directory with .txt files")] = None,
     anomaly_type: Annotated[str | None, typer.Option(help="Force anomaly type (A1/A2)")] = None,
-    max_new_tokens: Annotated[int, typer.Option(help="Max LLM tokens")] = 256,
-    max_retries: Annotated[int, typer.Option(help="Validation retries (-1=unlimited)")] = -1,
+    max_new_tokens: Annotated[int, typer.Option(help="Max LLM tokens")] = SCORE_DEFAULT_MAX_NEW_TOKENS,
+    max_retries: Annotated[int, typer.Option(help="Validation retries (-1=unlimited)")] = SCORE_DEFAULT_MAX_RETRIES,
     output_dir: Annotated[str | None, typer.Option(help="JSON output directory")] = None,
     log_dir: Annotated[str | None, typer.Option(help="Log directory")] = None,
     interactive: Annotated[bool, typer.Option("--interactive", "-i", help="Interactive prompt mode")] = False,
     stdin: Annotated[bool, typer.Option("--stdin", help="Single query from stdin")] = False,
+    resume: Annotated[bool, typer.Option("--resume/--no-resume", help="Skip queries that already have a valid output")] = True,
     config: Annotated[str | None, typer.Option("--config", "-c", help="Config file path")] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Detailed logging")] = False,
 ):
@@ -136,9 +142,9 @@ def score_command(
             batch_dir = score_cfg['batch_dir']
         if anomaly_type is None and 'anomaly_type' in score_cfg:
             anomaly_type = score_cfg['anomaly_type']
-        if max_new_tokens == 256 and 'max_new_tokens' in score_cfg:
+        if max_new_tokens == SCORE_DEFAULT_MAX_NEW_TOKENS and 'max_new_tokens' in score_cfg:
             max_new_tokens = score_cfg['max_new_tokens']
-        if max_retries == -1 and 'max_retries' in score_cfg:
+        if max_retries == SCORE_DEFAULT_MAX_RETRIES and 'max_retries' in score_cfg:
             max_retries = score_cfg['max_retries']
         if output_dir is None and 'output_dir' in score_cfg:
             output_dir = score_cfg['output_dir']
@@ -162,6 +168,7 @@ def score_command(
             interactive=interactive,
             stdin_mode=stdin,
             verbose=verbose,
+            resume=resume,
         )
 
 

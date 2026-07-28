@@ -72,3 +72,5 @@ data/
 route_sliced_*/
 *.csv
 *.npz
+.claude/
+

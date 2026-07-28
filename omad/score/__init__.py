@@ -6,13 +6,14 @@ def run_score(
     batch_root: str | None = None,
     batch_dir: str | None = None,
     anomaly_type: str | None = None,
-    max_new_tokens: int = 256,
-    max_retries: int = -1,
+    max_new_tokens: int = 1024,
+    max_retries: int = 6,
     output_dir: str | None = None,
     log_dir: str | None = None,
     interactive: bool = False,
     stdin_mode: bool = False,
     verbose: bool = False,
+    resume: bool = True,
 ):
     """
     Score: Generate LLM anomaly suitability scores.
@@ -29,6 +30,7 @@ def run_score(
         interactive: Interactive prompt mode
         stdin_mode: Single query from stdin
         verbose: Detailed logging
+        resume: Skip queries that already have a valid saved output
     """
     from datetime import datetime
     from pathlib import Path
@@ -55,6 +57,7 @@ def run_score(
         "Anomaly Type": anomaly_type or "Auto-detect",
         "Max Tokens": max_new_tokens,
         "Max Retries": max_retries if max_retries >= 0 else "Unlimited",
+        "Resume": resume,
         "Output Dir": output_dir,
         "Log Dir": log_dir,
     })
@@ -91,6 +94,7 @@ def run_score(
                     max_new_tokens=max_new_tokens,
                     max_retries=max_retries,
                     log_fh=log_fh,
+                    resume=resume,
                 )
             console.print(f"  Log saved to: {log_file}")
         elif batch_dir:
@@ -106,6 +110,7 @@ def run_score(
                     max_new_tokens=max_new_tokens,
                     max_retries=max_retries,
                     log_fh=log_fh,
+                    resume=resume,
                 )
             console.print(f"  Log saved to: {log_file}")
         else:

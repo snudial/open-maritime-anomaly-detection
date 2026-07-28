@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import time
@@ -6,13 +7,15 @@ from pathlib import Path
 from typing import Optional
 
 from omad.score.infer import infer_anomaly_type_from_filename, infer_expected_T_from_path
-from omad.score.llm_core import generate_json_validated, load_model, set_hf_cache
+from omad.score.llm_core import generate_json_validated, load_model, set_hf_cache, validate_score_payload
 from omad.score.logging_utils import get_arg_value, iter_query_files, log, sanitize_user_query_text, save_output_json
 
 CACHE_DIR = "./data/models"
 MODEL_ID = "Qwen/Qwen3-8B"
 DEFAULT_OUT_DIR = str(Path(__file__).resolve().parent / "outputs")
 DEFAULT_LOG_DIR = str(Path(__file__).resolve().parent / "logs")
+DEFAULT_MAX_NEW_TOKENS = 1024
+DEFAULT_MAX_RETRIES = 6
 
 # Lazy model loading - only load when actually needed
 _tokenizer = None
@@ -26,6 +29,36 @@ def _get_model():
         set_hf_cache(CACHE_DIR)
         _tokenizer, _model = load_model(MODEL_ID, CACHE_DIR)
     return _tokenizer, _model
+
+
+def _find_valid_existing_output(
+    *,
+    out_dir: str,
+    source_name: str,
+    anomaly_type: str,
+    expected_T: Optional[int],
+) -> Optional[Path]:
+    """Return an already-saved output for this query that passes validation.
+
+    Outputs from failed runs (parse_error wrappers, wrong scores length) are
+    ignored so that a resumed run re-scores exactly the queries that need it.
+    """
+    out_path = Path(out_dir)
+    if not out_path.is_dir():
+        return None
+    for fp in sorted(out_path.glob(f"qwen_output_{source_name}_*.json")):
+        try:
+            payload = json.loads(fp.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            continue
+        ok, _ = validate_score_payload(
+            payload,
+            expected_anomaly_type=anomaly_type,
+            expected_T=expected_T,
+        )
+        if ok:
+            return fp
+    return None
 
 
 def _parse_anomaly_type_flag(value: Optional[str]) -> Optional[str]:
@@ -58,13 +91,16 @@ def _batch_from_root(
     max_new_tokens: int,
     max_retries: int,
     log_fh,
+    resume: bool = True,
 ) -> int:
     tokenizer, model = _get_model()
     root = Path(batch_root)
     files = sorted(root.glob("**/user_query/*.txt"))
     log(f"[BATCH] batch_root={batch_root} (files={len(files)})", log_fh=log_fh)
-    log(f"[BATCH] out_dir={out_dir}", log_fh=log_fh)
+    log(f"[BATCH] out_dir={out_dir} resume={resume}", log_fh=log_fh)
 
+    resumed_cnt = 0
+    failed: list[str] = []
     for i, fp in enumerate(files, start=1):
         raw = fp.read_text(encoding="utf-8", errors="replace")
         user_query = sanitize_user_query_text(raw)
@@ -84,6 +120,19 @@ def _batch_from_root(
             log(f"[BATCH {i}/{len(files)}] SKIP A3: {fp.name}", log_fh=log_fh)
             continue
 
+        if resume:
+            done = _find_valid_existing_output(
+                out_dir=out_dir,
+                source_name=fp.stem,
+                anomaly_type=anomaly_type,
+                expected_T=expected_T,
+            )
+            if done is not None:
+                resumed_cnt += 1
+                if resumed_cnt % 500 == 0:
+                    log(f"[BATCH {i}/{len(files)}] RESUME: {resumed_cnt} already-valid outputs skipped", log_fh=log_fh)
+                continue
+
         log(
             f"[BATCH {i}/{len(files)}] INPUT: {fp} (anomaly_type={anomaly_type}, expected_T={expected_T})",
             log_fh=log_fh,
@@ -101,12 +150,25 @@ def _batch_from_root(
         )
         dt_s = time.perf_counter() - t0
         saved = save_output_json(answer, out_dir=out_dir, source_name=fp.stem, prefix="qwen_output")
+        if status not in {"ok", "coerced"}:
+            failed.append(f"{fp}\t{status}")
         log(f"[BATCH {i}/{len(files)}] STATUS={status} attempts={attempts} elapsed_s={dt_s:.3f}", log_fh=log_fh)
         log(f"[BATCH {i}/{len(files)}] OUTPUT:\n{answer}\n", log_fh=log_fh)
         log(f"[BATCH {i}/{len(files)}] SAVED: {saved}", log_fh=log_fh)
 
-    log("[BATCH DONE]", log_fh=log_fh)
+    _report_batch_result(out_dir=out_dir, resumed_cnt=resumed_cnt, failed=failed, log_fh=log_fh)
     return 0
+
+
+def _report_batch_result(*, out_dir: str, resumed_cnt: int, failed: list, log_fh) -> None:
+    """Log a batch summary and persist the list of queries that never validated."""
+    if resumed_cnt:
+        log(f"[BATCH] resumed (skipped already-valid): {resumed_cnt}", log_fh=log_fh)
+    if failed:
+        fail_path = Path(out_dir) / "failed_queries.tsv"
+        fail_path.write_text("\n".join(failed) + "\n", encoding="utf-8")
+        log(f"[BATCH] FAILED={len(failed)} -> {fail_path}", log_fh=log_fh)
+    log("[BATCH DONE]", log_fh=log_fh)
 
 
 def _batch_from_dir(
@@ -117,12 +179,15 @@ def _batch_from_dir(
     max_new_tokens: int,
     max_retries: int,
     log_fh,
+    resume: bool = True,
 ) -> int:
     tokenizer, model = _get_model()
     files = iter_query_files(batch_dir)
     log(f"[BATCH] query_dir={batch_dir} (files={len(files)})", log_fh=log_fh)
-    log(f"[BATCH] out_dir={out_dir}", log_fh=log_fh)
+    log(f"[BATCH] out_dir={out_dir} resume={resume}", log_fh=log_fh)
 
+    resumed_cnt = 0
+    failed: list[str] = []
     for i, fp in enumerate(files, start=1):
         raw = fp.read_text(encoding="utf-8", errors="replace")
         user_query = sanitize_user_query_text(raw)
@@ -142,6 +207,19 @@ def _batch_from_dir(
             continue
 
         expected_T = infer_expected_T_from_path(fp)
+        if resume:
+            done = _find_valid_existing_output(
+                out_dir=out_dir,
+                source_name=fp.stem,
+                anomaly_type=anomaly_type,
+                expected_T=expected_T,
+            )
+            if done is not None:
+                resumed_cnt += 1
+                if resumed_cnt % 500 == 0:
+                    log(f"[BATCH {i}/{len(files)}] RESUME: {resumed_cnt} already-valid outputs skipped", log_fh=log_fh)
+                continue
+
         log(
             f"[BATCH {i}/{len(files)}] INPUT: {fp} (anomaly_type={anomaly_type}, expected_T={expected_T})",
             log_fh=log_fh,
@@ -159,11 +237,13 @@ def _batch_from_dir(
         )
         dt_s = time.perf_counter() - t0
         saved = save_output_json(answer, out_dir=out_dir, source_name=fp.stem, prefix="qwen_output")
+        if status not in {"ok", "coerced"}:
+            failed.append(f"{fp}\t{status}")
         log(f"[BATCH {i}/{len(files)}] STATUS={status} attempts={attempts} elapsed_s={dt_s:.3f}", log_fh=log_fh)
         log(f"[BATCH {i}/{len(files)}] OUTPUT:\n{answer}\n", log_fh=log_fh)
         log(f"[BATCH {i}/{len(files)}] SAVED: {saved}", log_fh=log_fh)
 
-    log("[BATCH DONE]", log_fh=log_fh)
+    _report_batch_result(out_dir=out_dir, resumed_cnt=resumed_cnt, failed=failed, log_fh=log_fh)
     return 0
 
 
@@ -233,10 +313,16 @@ def main() -> int:
     log_dir = get_arg_value("--log-dir", DEFAULT_LOG_DIR) or DEFAULT_LOG_DIR
 
     max_new_tokens_s = get_arg_value("--max-new-tokens", None)
-    max_new_tokens = int(max_new_tokens_s) if (max_new_tokens_s and max_new_tokens_s.isdigit()) else 256
+    max_new_tokens = int(max_new_tokens_s) if (max_new_tokens_s and max_new_tokens_s.isdigit()) else DEFAULT_MAX_NEW_TOKENS
 
     max_retries_s = get_arg_value("--max-retries", None)
-    max_retries = int(max_retries_s) if (max_retries_s and max_retries_s.lstrip('-').isdigit()) else -1  # -1 means unlimited
+    # -1 means unlimited; the default is finite so a model that keeps miscounting
+    # cannot stall the whole batch on a single query.
+    max_retries = (
+        int(max_retries_s) if (max_retries_s and max_retries_s.lstrip('-').isdigit()) else DEFAULT_MAX_RETRIES
+    )
+
+    resume = "--no-resume" not in sys.argv
 
     cli_anomaly_type = _parse_anomaly_type_flag(get_arg_value("--anomaly-type", None))
     default_anomaly_type = _parse_anomaly_type_flag(get_arg_value("--default-anomaly-type", None))
@@ -260,6 +346,7 @@ def main() -> int:
                 max_new_tokens=max_new_tokens,
                 max_retries=max_retries,
                 log_fh=log_fh,
+                resume=resume,
             )
 
         if batch_dir is not None:
@@ -270,6 +357,7 @@ def main() -> int:
                 max_new_tokens=max_new_tokens,
                 max_retries=max_retries,
                 log_fh=log_fh,
+                resume=resume,
             )
 
     if "--once" in sys.argv:

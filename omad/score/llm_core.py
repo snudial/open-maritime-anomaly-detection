@@ -136,15 +136,60 @@ def validate_score_payload(
     return True, "ok"
 
 
+def coerce_scores_length(
+    payload: Optional[Dict[str, Any]],
+    expected_T: Optional[int],
+    *,
+    tol: int = 2,
+) -> Optional[Dict[str, Any]]:
+    """Repair a small off-by-N "scores" length error without another model call.
+
+    Models occasionally emit T+1 (or T-1) scores while reporting the correct T.
+    Retrying is useless under greedy decoding, so trim/pad the tail instead.
+    Returns a new payload, or None if the payload cannot be safely repaired.
+    """
+    if not isinstance(payload, dict):
+        return None
+    scores = payload.get("scores")
+    if not (isinstance(scores, list) and scores):
+        return None
+
+    target_T = expected_T if expected_T is not None else payload.get("T")
+    if not isinstance(target_T, int) or target_T <= 0:
+        return None
+
+    delta = len(scores) - target_T
+    if delta == 0 or abs(delta) > tol:
+        return None
+
+    fixed = dict(payload)
+    fixed["scores"] = scores[:target_T] if delta > 0 else scores + [0.0] * (-delta)
+    fixed["T"] = target_T
+    return fixed
+
+
 def build_repair_user_message(
     *,
     invalid_answer: str,
     reason: str,
     anomaly_type: str,
     expected_T: Optional[int],
+    prev_scores_len: Optional[int] = None,
 ) -> str:
     expT = expected_T if expected_T is not None else "(unknown)"
     required_keys = "T, anomaly_type, K, scores" if anomaly_type in {"A1", "A2"} else "T, anomaly_type, scores"
+    if expected_T is not None:
+        length_rule = (
+            f'CRITICAL: "scores" MUST contain EXACTLY {expected_T} numbers, '
+            f"one per timestamp t=1..{expected_T}."
+        )
+        if prev_scores_len is not None and prev_scores_len != expected_T:
+            length_rule += (
+                f"\nYour previous output had {prev_scores_len} numbers, which is wrong. "
+                "Count them one by one before answering."
+            )
+    else:
+        length_rule = 'CRITICAL: The length of "scores" MUST be exactly T.'
     return (
         "Your previous output was invalid.\n"
         f"- reason: {reason}\n"
@@ -152,7 +197,7 @@ def build_repair_user_message(
         f"- required T: {expT}\n\n"
         f"Return JSON ONLY with exactly these keys: {required_keys}.\n"
         "Do not add any other keys. Do not include any explanation.\n\n"
-        "CRITICAL: The length of \"scores\" MUST be exactly T.\n"
+        f"{length_rule}\n"
         "Here was your previous output (invalid):\n"
         "<<<\n"
         f"{invalid_answer}\n"
@@ -161,7 +206,14 @@ def build_repair_user_message(
     )
 
 
-def generate_text(*, tokenizer, model, messages: List[Dict[str, str]], max_new_tokens: int) -> str:
+def generate_text(
+    *,
+    tokenizer,
+    model,
+    messages: List[Dict[str, str]],
+    max_new_tokens: int,
+    sample: bool = False,
+) -> str:
     inputs = tokenizer.apply_chat_template(
         messages,
         add_generation_prompt=True,
@@ -171,7 +223,15 @@ def generate_text(*, tokenizer, model, messages: List[Dict[str, str]], max_new_t
         enable_thinking=False
     )
     inputs = inputs.to(model.device)
-    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    # Greedy decoding is deterministic: if a retry re-sends an identical prompt it
+    # reproduces the identical invalid answer forever. Sample on retries so the
+    # repair loop can actually escape.
+    gen_kwargs: Dict[str, Any] = (
+        {"do_sample": True, "temperature": 0.7, "top_p": 0.8, "top_k": 20}
+        if sample
+        else {"do_sample": False}
+    )
+    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, **gen_kwargs)
     return tokenizer.decode(
         outputs[0][inputs["input_ids"].shape[-1] :],
         skip_special_tokens=True,
@@ -199,10 +259,17 @@ def generate_json_validated(
 
     last_answer = ""
     last_reason = ""
+    last_payload: Optional[Dict[str, Any]] = None
     attempt = 0
     while True:
         attempt += 1
-        answer = generate_text(messages=base_messages, tokenizer=tokenizer, model=model, max_new_tokens=max_new_tokens)
+        answer = generate_text(
+            messages=base_messages,
+            tokenizer=tokenizer,
+            model=model,
+            max_new_tokens=max_new_tokens,
+            sample=(attempt > 1),
+        )
         last_answer = answer
 
         payload, parse_reason = parse_score_payload(answer)
@@ -215,18 +282,24 @@ def generate_json_validated(
             if ok:
                 return answer, payload, "ok", attempt
             last_reason = reason
+            last_payload = payload
         else:
             last_reason = parse_reason
+            last_payload = None
 
         # max_retries < 0 means unlimited retries
         if max_retries >= 0 and attempt > max_retries:
             break
 
+        prev_len = None
+        if isinstance(last_payload, dict) and isinstance(last_payload.get("scores"), list):
+            prev_len = len(last_payload["scores"])
         repair_user = build_repair_user_message(
             invalid_answer=answer,
             reason=last_reason,
             anomaly_type=anomaly_type,
             expected_T=expected_T,
+            prev_scores_len=prev_len,
         )
         base_messages = [
             {"role": "system", "content": system_prompt},
@@ -235,5 +308,23 @@ def generate_json_validated(
         ]
         if log_fn is not None:
             log_fn(f"[VALIDATION FAILED] attempt={attempt} reason={last_reason} -> retry")
+
+    # Retries exhausted: salvage a small off-by-N scores length in code rather than
+    # discarding an otherwise usable payload.
+    coerced = coerce_scores_length(last_payload, expected_T)
+    if coerced is not None:
+        ok, coerce_reason = validate_score_payload(
+            coerced,
+            expected_anomaly_type=anomaly_type,
+            expected_T=expected_T,
+        )
+        if ok:
+            coerced_answer = json.dumps(coerced, ensure_ascii=False)
+            if log_fn is not None:
+                log_fn(
+                    f"[COERCED] attempt={attempt} original_reason={last_reason} "
+                    f"-> scores length fixed to {len(coerced['scores'])}"
+                )
+            return coerced_answer, coerced, "coerced", attempt
 
     return last_answer, None, last_reason or "unknown error", attempt
